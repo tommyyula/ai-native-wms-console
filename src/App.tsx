@@ -4,6 +4,7 @@ import {
   Bot,
   Boxes,
   Building2,
+  Calendar,
   CheckCircle2,
   ChevronDown,
   ChevronLeft,
@@ -58,6 +59,7 @@ import {
   exportCsv,
   getApiMode,
   getRuntimeConfig,
+  IAM_SESSION_SCHEMA_VERSION,
   listInbound,
   listInventory,
   listOutbound,
@@ -76,6 +78,8 @@ const defaultEmail = 'operator@item.com'
 
 const movementStatus: MovementStatus[] = ['draft', 'planned', 'ordered', 'processing', 'completed', 'exception']
 const inventoryStatuses: InventoryStatus[] = ['available', 'allocated', 'hold', 'short', 'inspection']
+
+const preferredTenantId = (tenantList: Tenant[]) => tenantList.find((tenant) => tenant.id === 'tenant-plus')?.id || tenantList[0]?.id || ''
 
 const movementStatusText: Record<MovementStatus, Record<Language, string>> = {
   draft: { zh: '草稿', en: 'Draft', ja: '下書き' },
@@ -117,8 +121,14 @@ const formatNumber = (value: number) => new Intl.NumberFormat().format(value)
 
 function App() {
   const [language, setLanguage] = useState<Language>(() => (localStorage.getItem('wms_language') as Language) || 'zh')
-  const [session, setSession] = useState<AuthSession | null>(() => readJson<AuthSession | null>('wms_session', null))
-  const [context, setContext] = useState<RuntimeContext | null>(() => readJson<RuntimeContext | null>('wms_context', null))
+  const [session, setSession] = useState<AuthSession | null>(() => {
+    const saved = readJson<AuthSession | null>('wms_session', null)
+    return saved?.schemaVersion === IAM_SESSION_SCHEMA_VERSION ? saved : null
+  })
+  const [context, setContext] = useState<RuntimeContext | null>(() => {
+    const savedSession = readJson<AuthSession | null>('wms_session', null)
+    return savedSession?.schemaVersion === IAM_SESSION_SCHEMA_VERSION ? readJson<RuntimeContext | null>('wms_context', null) : null
+  })
   const [activePage, setActivePage] = useState<Page>('inventory')
   const [inventory, setInventory] = useState<InventoryItem[]>(inventorySeed)
   const [inbound, setInbound] = useState<MovementOrder[]>([])
@@ -366,7 +376,7 @@ function ContextGate({
   onContinue: (context: RuntimeContext) => void
   onSignOut: () => void
 }) {
-  const [tenantId, setTenantId] = useState(session.tenants[0]?.id || '')
+  const [tenantId, setTenantId] = useState(preferredTenantId(session.tenants))
   const selectedTenant = session.tenants.find((tenant) => tenant.id === tenantId) || session.tenants[0]
   const [warehouseId, setWarehouseId] = useState(selectedTenant?.warehouses[0]?.id || '')
   const t = (key: string) => translate(language, key)
@@ -385,7 +395,7 @@ function ContextGate({
       </div>
       <section className="context-panel">
         <div>
-          <p className="eyeless-label">IAM: {session.user.email}</p>
+          <p className="eyeless-label">IAM: {session.user.email} · {session.source}</p>
           <h1>{t('selectContext')}</h1>
           <p>{t('selectContextSubtitle')}</p>
         </div>
@@ -430,6 +440,21 @@ function ContextGate({
               </div>
             ))}
         </div>
+        <section className="iam-directory">
+          <header>
+            <strong>{t('iamDirectory')}</strong>
+            <span>{session.tenants.length} {t('tenant')} / {session.tenants.reduce((sum, tenant) => sum + tenant.warehouses.length, 0)} {t('warehouse')}</span>
+          </header>
+          <div>
+            {session.tenants.map((tenant) => (
+              <article key={tenant.id}>
+                <strong>{tenant.name}</strong>
+                <span>{tenant.code}</span>
+                <p>{tenant.warehouses.map((warehouse) => warehouse.code).join(', ')}</p>
+              </article>
+            ))}
+          </div>
+        </section>
         <button className="primary-button" type="button" onClick={() => onContinue({ tenantId, warehouseId, locale: language })}>
           <Gauge size={17} />
           {t('continue')}
@@ -757,6 +782,19 @@ function InventoryPage({
         </div>
       )}
 
+      <OperationBoard
+        title={t('quickOps')}
+        actions={[
+          { label: t('cycleCount'), icon: <ClipboardList size={18} /> },
+          { label: t('stockAdjust'), icon: <Edit3 size={18} /> },
+          { label: t('transfer'), icon: <Truck size={18} /> },
+          { label: t('replenishment'), icon: <Sparkles size={18} /> },
+          { label: t('freezeStock'), icon: <ShieldCheck size={18} /> },
+          { label: t('apiSync'), icon: <RefreshCcw size={18} /> },
+        ]}
+        onAction={(label) => onToast(`${label}: ${t('actionQueued')}`, 'success')}
+      />
+
       <div className="table-shell">
         <table>
           <thead>
@@ -1022,6 +1060,30 @@ function MovementPage({
 
       <DateStrip buckets={buckets} activeDate={activeDate} setActiveDate={setActiveDate} t={t} />
 
+      <OperationBoard
+        title={t('quickOps')}
+        actions={
+          direction === 'inbound'
+            ? [
+                { label: t('asnImport'), icon: <Upload size={18} /> },
+                { label: t('dockSchedule'), icon: <Calendar size={18} /> },
+                { label: t('receiveScan'), icon: <PackagePlus size={18} /> },
+                { label: t('qcInspection'), icon: <ShieldCheck size={18} /> },
+                { label: t('putaway'), icon: <Warehouse size={18} /> },
+                { label: t('inboundException'), icon: <AlertCircle size={18} /> },
+              ]
+            : [
+                { label: t('wavePlan'), icon: <SlidersHorizontal size={18} /> },
+                { label: t('allocation'), icon: <Boxes size={18} /> },
+                { label: t('pickTask'), icon: <ClipboardList size={18} /> },
+                { label: t('packTask'), icon: <PackageCheck size={18} /> },
+                { label: t('shipConfirm'), icon: <Truck size={18} /> },
+                { label: t('labelPrint'), icon: <Download size={18} /> },
+              ]
+        }
+        onAction={(label) => onToast(`${label}: ${t('actionQueued')}`, 'success')}
+      />
+
       {selected.length > 0 && (
         <div className="bulk-bar">
           <strong>{selected.length} {t('selected')}</strong>
@@ -1189,6 +1251,33 @@ function DateStrip({
         <ChevronRight size={18} />
       </button>
     </div>
+  )
+}
+
+function OperationBoard({
+  title,
+  actions,
+  onAction,
+}: {
+  title: string
+  actions: { label: string; icon: ReactNode }[]
+  onAction: (label: string) => void
+}) {
+  return (
+    <section className="operation-board" aria-label={title}>
+      <header>
+        <strong>{title}</strong>
+        <span>{actions.length}</span>
+      </header>
+      <div>
+        {actions.map((action) => (
+          <button key={action.label} type="button" onClick={() => onAction(action.label)}>
+            {action.icon}
+            {action.label}
+          </button>
+        ))}
+      </div>
+    </section>
   )
 }
 

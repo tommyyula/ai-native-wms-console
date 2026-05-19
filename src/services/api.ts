@@ -7,12 +7,15 @@ export type LoginRequest = {
 }
 
 export type AuthSession = {
+  schemaVersion: string
+  source: 'iam-production' | 'iam-demo'
   token: string
   user: {
     name: string
     email: string
     role: string
     groups: string[]
+    permissions: string[]
   }
   tenants: Tenant[]
   issuedAt: string
@@ -42,6 +45,8 @@ export const getApiMode = (): ApiMode => {
   const config = getRuntimeConfig()
   return config.iamBaseUrl && config.wmsBaseUrl ? 'production' : 'demo'
 }
+
+export const IAM_SESSION_SCHEMA_VERSION = '2026-05-19.item-design-v2'
 
 const wait = (ms = 240) => new Promise((resolve) => window.setTimeout(resolve, ms))
 
@@ -78,21 +83,40 @@ export async function loginWithIam(request: LoginRequest): Promise<AuthSession> 
   const { iamBaseUrl } = getRuntimeConfig()
 
   if (iamBaseUrl) {
-    return productionRequest<AuthSession>(iamBaseUrl, '/auth/login', {
+    const session = await productionRequest<AuthSession>(iamBaseUrl, '/auth/login', {
       method: 'POST',
       body: JSON.stringify(request),
     })
+    return {
+      ...session,
+      schemaVersion: session.schemaVersion || IAM_SESSION_SCHEMA_VERSION,
+      source: session.source || 'iam-production',
+      user: {
+        ...session.user,
+        permissions: session.user.permissions || ['tenant:read', 'warehouse:read'],
+      },
+    }
   }
 
   await wait()
 
   return {
+    schemaVersion: IAM_SESSION_SCHEMA_VERSION,
+    source: 'iam-demo',
     token: `demo-token-${Date.now()}`,
     user: {
       name: request.email.split('@')[0] || 'WMS Operator',
       email: request.email || 'operator@item.com',
-      role: 'WMS Operations Admin',
-      groups: ['経営管理部', '入荷チーム', '出荷チーム'],
+      role: 'IAM Tenant Warehouse Admin',
+      groups: ['経営管理部', '入荷チーム', '出荷チーム', 'IAM管理者'],
+      permissions: [
+        'tenant:read',
+        'warehouse:read',
+        'inventory:*',
+        'inbound:*',
+        'outbound:*',
+        'integration:sync',
+      ],
     },
     tenants,
     issuedAt: new Date().toISOString(),

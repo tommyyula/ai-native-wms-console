@@ -86,6 +86,27 @@ export type DayBucket = {
 
 export const tenants: Tenant[] = [
   {
+    id: 'tenant-item',
+    code: 'ITEM',
+    name: 'item Inc. Operations',
+    warehouses: [
+      {
+        id: 'item-hq-lab',
+        code: 'ITEM-LAB',
+        name: 'Item AI Fulfillment Lab',
+        region: 'US-West',
+        capabilities: ['WMS 3.0', 'IAM', 'AI orchestration'],
+      },
+      {
+        id: 'item-global-hub',
+        code: 'ITEM-HUB',
+        name: 'Item Global Integration Hub',
+        region: 'JP-Tokyo',
+        capabilities: ['API sandbox', 'Integration test', 'Master data'],
+      },
+    ],
+  },
+  {
     id: 'tenant-plus',
     code: 'PLUS',
     name: 'プラスオートメーション株式会社',
